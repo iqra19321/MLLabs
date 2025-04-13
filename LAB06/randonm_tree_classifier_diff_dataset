@@ -1,0 +1,106 @@
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import LabelEncoder
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.ensemble import RandomForestClassifier
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Load and prepare Iris dataset (Binary Classification: class 0 vs class 1)
+iris = load_iris()
+X = iris.data
+y = iris.target
+
+# Filter only class 0 and 1 for binary classification
+binary_mask = y != 2
+X_binary = X[binary_mask]
+y_binary = y[binary_mask]
+
+X_train, X_test, Y_train, Y_test = train_test_split(X_binary, y_binary, test_size=0.2, random_state=42)
+
+# --- Custom Random Forest Implementation ---
+class CustomRandomForest:
+    def __init__(self, n_estimators=5, max_depth=None, max_features='sqrt'):
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.max_features = max_features
+        self.trees = []
+        self.feature_indices = []
+
+    def _bootstrap_sample(self, X, y):
+        n_samples = X.shape[0]
+        indices = np.random.choice(n_samples, n_samples, replace=True)
+        return X[indices], y[indices]
+
+    def _select_features(self, X):
+        n_features = X.shape[1]
+        size = int(np.sqrt(n_features)) if self.max_features == 'sqrt' else n_features
+        return np.random.choice(n_features, size, replace=False)
+
+    def fit(self, X, y):
+        self.trees = []
+        self.feature_indices = []
+        for _ in range(self.n_estimators):
+            X_sample, y_sample = self._bootstrap_sample(X, y)
+            features = self._select_features(X_sample)
+            tree = DecisionTreeClassifier(max_depth=self.max_depth)
+            tree.fit(X_sample[:, features], y_sample)
+            self.trees.append(tree)
+            self.feature_indices.append(features)
+
+    def predict(self, X):
+        predictions = np.array([
+            tree.predict(X[:, features])
+            for tree, features in zip(self.trees, self.feature_indices)
+        ])
+        return np.round(np.mean(predictions, axis=0)).astype(int)
+
+# Train and Evaluate Custom RF
+model = CustomRandomForest(n_estimators=5, max_depth=3, max_features='sqrt')
+model.fit(X_train, Y_train)
+y_pred_custom = model.predict(X_test)
+
+print("\n📌 Custom Random Forest Classifier:")
+print("Accuracy:", accuracy_score(Y_test, y_pred_custom))
+print("Precision:", precision_score(Y_test, y_pred_custom))
+print("Recall:", recall_score(Y_test, y_pred_custom))
+print("F1 Score:", f1_score(Y_test, y_pred_custom))
+
+# Plot trees from Custom RF
+fig, axes = plt.subplots(nrows=1, ncols=len(model.trees), figsize=(20, 4), dpi=100)
+for i, (tree, features) in enumerate(zip(model.trees, model.feature_indices)):
+    plot_tree(tree, feature_names=iris.feature_names, class_names=iris.target_names[:2],
+              filled=True, ax=axes[i], max_depth=2, fontsize=7)
+    axes[i].set_title(f"Tree {i+1} (Custom RF)")
+plt.tight_layout()
+plt.show()
+
+# --- Sklearn Random Forest with GridSearch ---
+param_grid = {
+    'n_estimators': [10, 50],
+    'max_depth': [3, 5],
+    'max_features': ['sqrt', None]
+}
+
+grid_rf = RandomForestClassifier(random_state=42)
+grid_search = GridSearchCV(estimator=grid_rf, param_grid=param_grid, cv=3, scoring='accuracy')
+grid_search.fit(X_train, Y_train)
+
+best_rf = grid_search.best_estimator_
+y_pred_sklearn = best_rf.predict(X_test)
+
+print("\n📌 Sklearn Random Forest Classifier (Best Parameters):", grid_search.best_params_)
+print("Accuracy:", accuracy_score(Y_test, y_pred_sklearn))
+print("Precision:", precision_score(Y_test, y_pred_sklearn))
+print("Recall:", recall_score(Y_test, y_pred_sklearn))
+print("F1 Score:", f1_score(Y_test, y_pred_sklearn))
+
+# Plot few trees from Sklearn RF
+fig, axes = plt.subplots(nrows=1, ncols=5, figsize=(20, 4), dpi=100)
+for i in range(5):
+    plot_tree(best_rf.estimators_[i], feature_names=iris.feature_names, class_names=iris.target_names[:2],
+              filled=True, ax=axes[i], max_depth=2, fontsize=7)
+    axes[i].set_title(f"Tree {i+1} (Sklearn RF)")
+plt.tight_layout()
+plt.show()
